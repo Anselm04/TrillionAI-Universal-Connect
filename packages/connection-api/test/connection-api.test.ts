@@ -20,7 +20,7 @@ if(process.env.TEST_ADMIN_DATABASE_URL&&process.env.TEST_RUNTIME_DATABASE_URL){
     const admin=new pg.Pool({connectionString:process.env.TEST_ADMIN_DATABASE_URL});
     const runtime=new pg.Pool({connectionString:process.env.TEST_RUNTIME_DATABASE_URL});
     const seen:{method:string;actor:string;state?:string;code?:string}[]=[];
-    let identityChecks=0,policyChecks=0,limitChecks=0;
+    let identityChecks=0,policyChecks=0,limitChecks=0,revocations=0,localDeletes=0;
     const options:OAuthRouteOptions={
       identity:{authenticate:async(token,tenantId)=>{
         identityChecks++;
@@ -43,6 +43,8 @@ if(process.env.TEST_ADMIN_DATABASE_URL&&process.env.TEST_RUNTIME_DATABASE_URL){
         }
       },
       pool:runtime,
+      githubLifecycle:{revoke:async()=>{revocations++}},
+      localTokenVault:{revoke:async()=>{localDeletes++;return true}},
       policy:{authorize:async(identity,connectionId,provider,operation,approval)=>{
         policyChecks++;
         assert.equal(identity.principal.subject,actor);
@@ -79,7 +81,8 @@ if(process.env.TEST_ADMIN_DATABASE_URL&&process.env.TEST_RUNTIME_DATABASE_URL){
       assert.equal(completed.status,200);
       assert.equal(completed.body.connected,true);
       assert.equal((await send('DELETE',basePath)).status,200);
-      assert.equal(seen.length,3);
+      assert.equal(seen.length,2);
+      assert.equal(revocations,1);assert.equal(localDeletes,1);
       assert.equal(seen[1].state,'s'.repeat(43));
       const audit=await admin.query(
         `SELECT action,tenant_id,actor_id FROM universal_connect.oauth_connection_events
