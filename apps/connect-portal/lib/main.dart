@@ -64,6 +64,7 @@ class _ConnectHomeState extends State<ConnectHome> {
   bool _busy = false;
   bool _consent = false;
   bool _connectedThisSession = false;
+  List<Map<String, dynamic>> _managedConnections = const [];
   RequestedAccess _access = RequestedAccess.profile;
   String? _message;
   late final ConnectionApi _api;
@@ -158,6 +159,47 @@ class _ConnectHomeState extends State<ConnectHome> {
     _connectedThisSession = false;
     setState(() => _message = 'Signed out.');
   });
+
+  Future<void> _loadConnections() async {
+    final tenant = _tenant.text.trim();
+    if (!validTenantId(tenant)) {
+      setState(() => _message = 'Enter your organization ID before loading connections.');
+      return;
+    }
+    await _execute(() async {
+      final found = await _api.listManagedConnections(tenant);
+      setState(() => _managedConnections = found);
+      if (found.isNotEmpty) {
+        final selected = found.any((item) => item['id'] == _connection.text)
+            ? _connection.text
+            : found.first['id'];
+        if (selected is String) _connection.text = selected;
+      }
+    });
+  }
+
+  Future<void> _createConnection() async {
+    final tenant = _tenant.text.trim();
+    if (!validTenantId(tenant)) {
+      setState(() => _message = 'Enter your organization ID before creating a connection.');
+      return;
+    }
+    await _execute(() async {
+      final created = await _api.createManagedConnection(tenant);
+      final id = created['id'];
+      if (id is! String || !validConnectionId(id)) {
+        throw const ConnectionApiException('Invalid new connection ID.');
+      }
+      _connection.text = id;
+      html.window.sessionStorage['uc.tenant'] = tenant;
+      html.window.sessionStorage['uc.connection'] = id;
+      final list = await _api.listManagedConnections(tenant);
+      setState(() {
+        _managedConnections = list;
+        _message = 'GitHub connection created. Review permissions, then authorize GitHub.';
+      });
+    });
+  }
 
   Future<void> _start() async {
     final tenant = _tenant.text.trim();
@@ -283,11 +325,44 @@ class _ConnectHomeState extends State<ConnectHome> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : _loadConnections,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('My connections'),
+                    ),
+                    FilledButton.icon(
+                      onPressed: _busy ? null : _createConnection,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Create GitHub connection'),
+                    ),
+                  ],
+                ),
+                if (_managedConnections.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: _managedConnections.any((item) => item['id'] == _connection.text)
+                        ? _connection.text : null,
+                    decoration: const InputDecoration(labelText: 'Select my connection'),
+                    items: _managedConnections.where((item) => item['id'] is String)
+                        .map((item) => DropdownMenuItem<String>(
+                          value: item['id'] as String,
+                          child: Text('GitHub — ${item['status'] ?? 'unknown'}'),
+                        )).toList(),
+                    onChanged: _busy ? null : (id) {
+                      if (id != null) setState(() => _connection.text = id);
+                    },
+                  ),
+                ],
+                const SizedBox(height: 12),
                 TextField(
                   controller: _connection,
                   decoration: const InputDecoration(
-                    labelText: 'Connection ID',
-                    helperText: 'An existing connection provisioned by the backend.',
+                    labelText: 'Selected connection ID',
+                    helperText: 'Use Create GitHub connection or My connections above.',
                   ),
                 ),
                 const SizedBox(height: 20),
