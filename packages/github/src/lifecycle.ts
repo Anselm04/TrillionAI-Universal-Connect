@@ -21,14 +21,16 @@ function parseTokens(raw:Buffer):OAuthTokens {
   return parsed as OAuthTokens;
 }
 export class GitHubLifecycleService implements GitHubLifecycle {
-  constructor(
-    private readonly vault:Pick<OAuthVault,'withCredential'>,
-    private readonly transport:ProviderTransport,
-    private readonly limiter:Pick<ProviderRateLimiter,'acquire'>,
-    private readonly secrets:OAuthClientSecrets,
-    private readonly clientId:string
-  ) {
+  private readonly vault:Pick<OAuthVault,'withCredential'>;
+  private readonly transport:ProviderTransport;
+  private readonly limiter:Pick<ProviderRateLimiter,'acquire'>;
+  private readonly secrets:OAuthClientSecrets;
+  private readonly clientId:string;
+  constructor(vault:Pick<OAuthVault,'withCredential'>,transport:ProviderTransport,
+    limiter:Pick<ProviderRateLimiter,'acquire'>,secrets:OAuthClientSecrets,clientId:string) {
     if(!/^[A-Za-z0-9_-]{8,128}$/.test(clientId))throw new GitHubLifecycleError();
+    this.vault=vault;this.transport=transport;this.limiter=limiter;
+    this.secrets=secrets;this.clientId=clientId;
   }
   private async quota(scope:VaultScope):Promise<void>{
     const permitted=await this.limiter.acquire(scope.tenantId,'github.oauth.lifecycle').catch(()=>false);
