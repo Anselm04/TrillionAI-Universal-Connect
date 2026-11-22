@@ -33,7 +33,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run db:test:setup
       - name: Verify runtime startup gate with disposable CI credentials
-        run: npm run service:preflight
+        run: VAULT_KEY_BASE64=$(node -p "Buffer.alloc(32,31).toString('base64')") npm run service:preflight
         env:
           PORT: '8080'
           PUBLIC_ORIGIN: https://connect.example.com
@@ -44,6 +44,5 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ci-private-fixture
           GITHUB_CLIENT_ID: client123456
           GITHUB_CLIENT_SECRET: ci-not-real-github-secret
-          VAULT_KEY_BASE64: Hx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8=
           VAULT_KEY_VERSION: v1
       - run: npm test
