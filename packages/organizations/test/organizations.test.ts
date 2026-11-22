@@ -20,5 +20,15 @@ test('organization route demands same origin + bearer and never trusts tenant in
     const ok=await fetch(url,{headers:{origin:'https://connect.example.com',authorization:'Bearer valid-token-12345','x-organisation-id':'attacker-tenant'}});
     assert.equal(ok.status,200);assert.deepEqual((await ok.json()).organizations,[{id:tenant,role:'customer'}]);
     assert.equal(ok.headers.get('cache-control'),'no-store');
+    const browserGet=await fetch(url,{headers:{
+      'sec-fetch-site':'same-origin',authorization:'Bearer valid-token-12345'
+    }});
+    assert.equal(browserGet.status,200,'same-origin browser GET need not send Origin');
+    const missingProof=await fetch(url,{headers:{authorization:'Bearer valid-token-12345'}});
+    assert.equal(missingProof.status,403,'no Origin and no fetch metadata must fail closed');
+    const crossSite=await fetch(url,{headers:{
+      'sec-fetch-site':'cross-site',authorization:'Bearer valid-token-12345'
+    }});
+    assert.equal(crossSite.status,403);
   }finally{await new Promise<void>(resolve=>server.close(()=>resolve()))}
 });
