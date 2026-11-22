@@ -10,7 +10,8 @@
     "test": "node --experimental-strip-types --test packages/*/test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "db:test:setup": "node scripts/setup-test-database.mjs",
-    "service:start": "node --experimental-strip-types packages/service/src/main.ts"
+    "service:start": "node --experimental-strip-types packages/service/src/main.ts",
+    "service:preflight": "node --experimental-strip-types scripts/preflight-service.ts"
   },
   "devDependencies": {
     "typescript": "~5.9.3",
