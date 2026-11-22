@@ -19,6 +19,7 @@ export interface IdentityAuth {
 }
 export interface IdentityDirectory {
   sessionActive(userId: string, sessionId: string): Promise<{active:boolean|null; error?:unknown}>;
+  memberships(userId:string):Promise<{memberships:{organisationId:string;role:OrganisationRole;status:string}[]|null;error?:unknown}>;
   member(userId: string, tenantId: string): Promise<{
     membership: {role:OrganisationRole; status:string}|null; error?:unknown
   }>;
@@ -49,6 +50,41 @@ const identityProblem = (code: IdentityBoundaryError['code'], msg: string) =>
 export class SupabaseIdentityBoundary {
   private readonly dependencies: IdentityDependencies;
   constructor(dependencies:IdentityDependencies) { this.dependencies = dependencies; }
+  /** Discover tenant choices only after verifying the bearer, active session, and confirmed email.
+   * Never accept a claimed actor ID from the caller or reveal inactive memberships. */
+  async organizations(accessToken:string):Promise<{id:string;role:OrganisationRole}[]>{
+    if(typeof accessToken!=='string'||accessToken.length<12||accessToken.length>16384)
+      throw identityProblem('UNAUTHENTICATED','Invalid access token');
+    let user:Awaited<ReturnType<IdentityAuth['getUser']>>['user'];
+    try{
+      const verified=await this.dependencies.auth.getUser(accessToken);
+      if(verified.error||!verified.user)throw identityProblem('UNAUTHENTICATED','Invalid access token');
+      user=verified.user;
+    }catch(err){
+      if(err instanceof IdentityBoundaryError)throw err;
+      throw identityProblem('IDENTITY_UNAVAILABLE','Identity unavailable');
+    }
+    if(!user.id||!uuid.test(user.id)||!user.email_confirmed_at)
+      throw identityProblem('FORBIDDEN','Verified email required');
+    const claims=validatedSessionClaims(accessToken,user.id);
+    if(!claims)throw identityProblem('UNAUTHENTICATED','Invalid session');
+    try{
+      const active=await this.dependencies.directory.sessionActive(user.id,claims.sessionId);
+      if(active.error||active.active===null)throw identityProblem('IDENTITY_UNAVAILABLE','Session lookup failed');
+      if(active.active!==true)throw identityProblem('UNAUTHENTICATED','Session revoked');
+      const result=await this.dependencies.directory.memberships(user.id);
+      if(result.error||!Array.isArray(result.memberships))
+        throw identityProblem('IDENTITY_UNAVAILABLE','Membership discovery failed');
+      return result.memberships.filter(m=>
+        uuid.test(m.organisationId)&&m.status==='active'&&
+        ['owner','admin','staff','customer'].includes(m.role)&&
+        (!['owner','admin'].includes(m.role)||claims.aal==='aal2')
+      ).slice(0,100).map(m=>({id:m.organisationId,role:m.role}));
+    }catch(err){
+      if(err instanceof IdentityBoundaryError)throw err;
+      throw identityProblem('IDENTITY_UNAVAILABLE','Organization discovery unavailable');
+    }
+  }
   async authenticate(accessToken: string, tenantId:string):Promise<VerifiedIdentity> {
     if (typeof accessToken !== 'string' || accessToken.length < 12 || accessToken.length > 16384 ||
         typeof tenantId !== 'string' || !uuid.test(tenantId)) {
@@ -121,6 +157,18 @@ export function makeSupabaseIdentityBoundary(config:{
       },
     },
     directory:{
+      async memberships(userId){
+        const {data,error}=await adminClient.from('identity_memberships')
+          .select('organisation_id,role,status')
+          .eq('user_id',userId).eq('status','active').limit(100);
+        return {
+          memberships:data?.map(m=>({
+            organisationId:m.organisation_id,
+            role:m.role as OrganisationRole,
+            status:m.status
+          }))??null,error
+        };
+      },
       async sessionActive(userId,sessionId){
         const {data,error}=await adminClient.rpc('identity_session_active',{p_user:userId,p_session:sessionId});
         return {active:typeof data==='boolean'?data:null,error};

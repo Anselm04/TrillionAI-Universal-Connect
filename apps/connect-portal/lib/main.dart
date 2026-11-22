@@ -65,6 +65,7 @@ class _ConnectHomeState extends State<ConnectHome> {
   bool _consent = false;
   bool _connectedThisSession = false;
   List<Map<String, dynamic>> _managedConnections = const [];
+  List<Map<String, dynamic>> _organizations = const [];
   RequestedAccess _access = RequestedAccess.profile;
   String? _message;
   late final ConnectionApi _api;
@@ -159,6 +160,29 @@ class _ConnectHomeState extends State<ConnectHome> {
     _connectedThisSession = false;
     setState(() => _message = 'Signed out.');
   });
+
+  Future<void> _loadOrganizations() async {
+    await _execute(() async {
+      final organizations = await _api.listOrganizations();
+      final previous = _tenant.text.trim();
+      final selected = organizations.any((o) => o['id'] == previous)
+          ? previous : (organizations.isEmpty ? '' : (organizations.first['id'] as String? ?? ''));
+      setState(() {
+        _organizations = organizations;
+        _tenant.text = selected;
+        _managedConnections = const [];
+        _connection.clear();
+        _consent = false;
+        _message = organizations.isEmpty
+            ? 'No active organizations available. Verify your membership or required MFA.'
+            : 'Select your organization to manage GitHub connections.';
+      });
+      if (selected.isNotEmpty) {
+        html.window.sessionStorage['uc.tenant'] = selected;
+        html.window.sessionStorage.remove('uc.connection');
+      }
+    });
+  }
 
   Future<void> _loadConnections() async {
     final tenant = _tenant.text.trim();
@@ -317,13 +341,43 @@ class _ConnectHomeState extends State<ConnectHome> {
               ] else ...[
                 Text('Signed in as ${Supabase.instance.client.auth.currentUser?.email ?? 'verified user'}'),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: _tenant,
-                  decoration: const InputDecoration(
-                    labelText: 'Organization ID (UUID)',
-                    helperText: 'Provided by your authorized organization account.',
-                  ),
+                OutlinedButton.icon(
+                  onPressed: _busy ? null : _loadOrganizations,
+                  icon: const Icon(Icons.business),
+                  label: const Text('Choose my organization'),
                 ),
+                if (_organizations.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: _organizations.any((o) => o['id'] == _tenant.text)
+                        ? _tenant.text : null,
+                    decoration: const InputDecoration(labelText: 'My organization'),
+                    items: _organizations.where((o) => o['id'] is String)
+                      .map((o) => DropdownMenuItem<String>(
+                        value: o['id'] as String,
+                        child: Text('Organization — ${o['role'] ?? 'member'}'),
+                      )).toList(),
+                    onChanged: _busy ? null : (id) {
+                      if (id == null) return;
+                      setState(() {
+                        _tenant.text = id;
+                        _connection.clear();
+                        _managedConnections = const [];
+                        _consent = false;
+                      });
+                      html.window.sessionStorage['uc.tenant'] = id;
+                      html.window.sessionStorage.remove('uc.connection');
+                    },
+                  ),
+                ] else
+                  TextField(
+                    controller: _tenant,
+                    readOnly: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Organization',
+                      helperText: 'Choose my organization above. Membership and MFA are verified by Identity.',
+                    ),
+                  ),
                 const SizedBox(height: 12),
                 Wrap(
                   spacing: 12,

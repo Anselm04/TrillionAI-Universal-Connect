@@ -11,6 +11,11 @@ function setup(options:{verified?:boolean; active?:boolean;role?:'owner'|'admin'
     getUser:async()=>{authCalls++;return {user:options.verified===false?null:{id:uid,email_confirmed_at:'2026-01-01T00:00:00Z'}}},
   };
   const directory:IdentityDirectory={
+    memberships:async()=>({memberships:[
+      {organisationId:tenant,role:options.role??'customer',status:options.status??'active'},
+      {organisationId:'44444444-4444-4444-8444-444444444444',role:'admin',status:'active'},
+      {organisationId:'55555555-5555-4555-8555-555555555555',role:'staff',status:'disabled'}
+    ]}),
     sessionActive:async()=>({active:options.active??true}),
     member:async()=>{membershipCalls++;return options.directoryError?{membership:null,error:new Error('offline')}:{membership:{role:options.role??'customer',status:options.status??'active'}}}
   };
@@ -50,3 +55,14 @@ test('spoofed session subject denied after token verification',async()=>assert.r
   setup().boundary.authenticate(token({sub:'55555555-5555-4555-8555-555555555555'}),tenant),rejected('UNAUTHENTICATED')));
 test('bad assurance fails closed',async()=>assert.rejects(
   setup({aal:'invalid'}).boundary.authenticate(token({aal:'invalid'}),tenant),rejected('UNAUTHENTICATED')));
+
+test('organization discovery filters inactive memberships and requires MFA for admin',async()=>{
+  const s=setup();
+  assert.deepEqual(await s.boundary.organizations(token()),[{id:tenant,role:'customer'}]);
+  assert.deepEqual(await s.boundary.organizations(token({aal:'aal2'})),[
+    {id:tenant,role:'customer'},
+    {id:'44444444-4444-4444-8444-444444444444',role:'admin'}
+  ]);
+  await assert.rejects(setup({active:false}).boundary.organizations(token()),rejected('UNAUTHENTICATED'));
+  await assert.rejects(setup({verified:false}).boundary.organizations(token()),rejected('UNAUTHENTICATED'));
+});
