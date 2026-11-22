@@ -18,6 +18,8 @@ export interface OAuthRouteOptions {
   readonly limiter:Pick<ProviderRateLimiter,'acquire'>;
   readonly allowedOrigin:string;
   readonly providerId:'github.oauth';
+  /** Must reflect the registered OAuth provider scopes; repo access is never implied. */
+  readonly supportsRepositoryAccess:boolean;
 }
 export class ConnectionDenied extends Error {
   constructor(){super('Connection action denied');this.name='ConnectionDenied'}
@@ -91,6 +93,8 @@ export function createOAuthConnectionRouter(options:OAuthRouteOptions):express.R
       req.body.consent!==true || !approvedValue(req.body.requestedAccess))
       throw new ConnectionDenied();
     // Broad GitHub repo permission cannot be silently requested by an API client.
+    if(req.body.requestedAccess==='repositories'&&!options.supportsRepositoryAccess)
+      throw new ConnectionDenied();
     const {identity,connectionId}=await authorize(req,'connect',req.body.requestedAccess);
     const connection= {tenantId:identity.principal.tenantId,connectionId};
     const result=await options.oauth.begin(identity.principal,connection,options.providerId);
