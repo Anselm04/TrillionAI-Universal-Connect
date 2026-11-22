@@ -9,6 +9,7 @@ try {
   for (const path of [
     'infrastructure/database/001_tenant_persistence.sql',
     'infrastructure/database/002_runtime_grants.sql',
+    'infrastructure/database/003_credential_vault.sql',
   ]) {
     await client.query(await readFile(path, 'utf8'));
   }
