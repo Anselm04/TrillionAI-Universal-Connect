@@ -17,7 +17,7 @@ export function createOrganizationRouter(options:OrganizationRoutesOptions):expr
     res.setHeader('Referrer-Policy','no-referrer');next();
   });
   router.get('/',async(req:Request,res:Response)=>{
-    if(req.get('origin')!==origin.origin||req.get('sec-fetch-site')==='cross-site'){
+    if((req.get('origin')!==origin.origin && !(req.method==='GET' && !req.get('origin') && req.get('sec-fetch-site')==='same-origin')) || req.get('sec-fetch-site')==='cross-site'){
       res.status(403).json({error:'forbidden'});return;
     }
     const token=/^Bearer ([^\s]+)$/i.exec(req.get('authorization')??'')?.[1];
