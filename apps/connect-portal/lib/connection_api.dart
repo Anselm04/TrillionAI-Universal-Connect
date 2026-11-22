@@ -131,6 +131,15 @@ class ConnectionApi {
     }).toList();
   }
 
+  Future<Map<String, dynamic>> verifyManagedConnection(String tenantId, String connectionId) async {
+    final result=await _managedRequest('POST',tenantId,path:'/$connectionId/verify');
+    final connection=result['connection'];
+    if(connection is! Map<String,dynamic>) {
+      throw const ConnectionApiException('Invalid GitHub verification result.');
+    }
+    return connection;
+  }
+
   Future<Map<String, dynamic>> managedConnectionStatus(String tenantId, String connectionId) async {
     final result = await _managedRequest('GET', tenantId, path: '/$connectionId');
     final connection = result['connection'];
