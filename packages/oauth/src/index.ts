@@ -13,6 +13,12 @@ export interface OAuthProvider {
   readonly redirectUri:string;
   readonly scopes:readonly string[];
   readonly revokeUrl?:string;
+  /** Set for confidential OAuth providers such as GitHub.com. */
+  readonly requiresClientSecret?:boolean;
+}
+export interface OAuthClientSecrets {
+  /** Secret is obtained only on a trusted backend. Wipe the Buffer after callback. */
+  withClientSecret<T>(providerId:string,use:(secret:Buffer)=>Promise<T>):Promise<T>;
 }
 export interface OAuthVault {
   put(scope:VaultScope,name:string,plaintext:Buffer):Promise<void>;
@@ -51,7 +57,7 @@ function validateProvider(provider:OAuthProvider):void {
 function tokensFromJson(json:unknown,previous?:OAuthTokens):OAuthTokens {
   if(!json||typeof json!=='object'||Array.isArray(json))throw new OAuthError('UPSTREAM');
   const data=json as Record<string,unknown>;
-  if(!requiredString(data.access_token)||data.token_type!=='Bearer')throw new OAuthError('UPSTREAM');
+  if(!requiredString(data.access_token)||typeof data.token_type!=='string'||data.token_type.toLowerCase()!=='bearer')throw new OAuthError('UPSTREAM');
   if(data.refresh_token!==undefined&&!requiredString(data.refresh_token))throw new OAuthError('UPSTREAM');
   if(data.expires_in!==undefined&&(!Number.isInteger(data.expires_in)||Number(data.expires_in)<1||Number(data.expires_in)>31536000))throw new OAuthError('UPSTREAM');
   return {
@@ -79,10 +85,11 @@ export class OAuthConnectionService {
   private readonly vault:OAuthVault;
   private readonly transport:ProviderTransport;
   private readonly providers:Map<string,OAuthProvider>;
-  constructor(pool:TenantPool,keys:VaultKeyProvider,vault:OAuthVault,transport:ProviderTransport,providers:readonly OAuthProvider[]) {
-    this.pool=pool;this.keys=keys;this.vault=vault;this.transport=transport;
+  private readonly clientSecrets?:OAuthClientSecrets;
+  constructor(pool:TenantPool,keys:VaultKeyProvider,vault:OAuthVault,transport:ProviderTransport,providers:readonly OAuthProvider[],clientSecrets?:OAuthClientSecrets) {
+    this.pool=pool;this.keys=keys;this.vault=vault;this.transport=transport;this.clientSecrets=clientSecrets;
     this.providers=new Map();
-    for(const p of providers){validateProvider(p);if(this.providers.has(p.id))throw new OAuthError('INVALID');this.providers.set(p.id,p)}
+    for(const p of providers){validateProvider(p);if(this.providers.has(p.id)|| (p.requiresClientSecret&&!clientSecrets))throw new OAuthError('INVALID');this.providers.set(p.id,p)}
   }
   private provider(providerId:string):OAuthProvider{
     const value=this.providers.get(providerId);if(!value)throw new OAuthError('DENIED');return value;
@@ -125,13 +132,26 @@ export class OAuthConnectionService {
     target.searchParams.set('code_challenge_method','S256');
     return {url:target.toString(),state};
   }
-  private async postToken(p:OAuthProvider,params:URLSearchParams):Promise<OAuthTokens>{
-    const response=await this.transport.send(p.tokenUrl,{
-      method:'POST',redirect:'error',credentials:'omit',
-      headers:{accept:'application/json','content-type':'application/x-www-form-urlencoded'},
-      body:params.toString(),signal:AbortSignal.timeout(8000)
-    });
-    return tokensFromJson(await readTokenResponse(response));
+  private async postToken(p:OAuthProvider,params:URLSearchParams,previous?:OAuthTokens):Promise<OAuthTokens>{
+    const send=async(secret?:Buffer):Promise<OAuthTokens>=>{
+      const body=new URLSearchParams(params);
+      if(p.requiresClientSecret){
+        if(!secret||!requiredString(secret.toString('utf8'))||/[\r\n]/.test(secret.toString('utf8')))
+          throw new OAuthError('UNAVAILABLE');
+        body.set('client_secret',secret.toString('utf8'));
+      }
+      const response=await this.transport.send(p.tokenUrl,{
+        method:'POST',redirect:'error',credentials:'omit',
+        headers:{accept:'application/json','content-type':'application/x-www-form-urlencoded'},
+        body:body.toString(),signal:AbortSignal.timeout(8000)
+      });
+      return tokensFromJson(await readTokenResponse(response),previous);
+    };
+    if(p.requiresClientSecret){
+      if(!this.clientSecrets)throw new OAuthError('UNAVAILABLE');
+      return this.clientSecrets.withClientSecret(p.id,buffer=>send(buffer));
+    }
+    return send();
   }
   async complete(principal:Principal,scope:VaultScope,providerId:string,state:string,code:string):Promise<void>{
     this.validate(principal,scope);
@@ -175,12 +195,7 @@ export class OAuthConnectionService {
         try{existing=JSON.parse(raw.toString('utf8')) as OAuthTokens}catch{throw new OAuthError('UNAVAILABLE')}
         if(!requiredString(existing.refresh_token))throw new OAuthError('DENIED');
         const form=new URLSearchParams({grant_type:'refresh_token',refresh_token:existing.refresh_token,client_id:p.clientId});
-        const response=await this.transport.send(p.tokenUrl,{
-          method:'POST',redirect:'error',credentials:'omit',
-          headers:{accept:'application/json','content-type':'application/x-www-form-urlencoded'},
-          body:form.toString(),signal:AbortSignal.timeout(8000)
-        });
-        const renewed=tokensFromJson(await readTokenResponse(response),existing);
+        const renewed=await this.postToken(p,form,existing);
         const payload=Buffer.from(JSON.stringify(renewed));
         try{await this.vault.put(scope,'oauth_tokens',payload)}finally{payload.fill(0)}
       });
