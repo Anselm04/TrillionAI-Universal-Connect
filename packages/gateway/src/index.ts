@@ -19,7 +19,7 @@ export interface ConnectionRecord {
   readonly capabilities: readonly Capability[];
 }
 export interface ConnectionStore {
-  getById(id: string): Promise<ConnectionRecord | null>;
+  getById(id: string, tenantId: string): Promise<ConnectionRecord | null>;
 }
 export interface AuthorizationDecision {
   readonly allowed: boolean;
@@ -79,7 +79,7 @@ export class ExecutionGateway {
       !input.request?.capability?.trim()) {
       throw new ConnectorError('INVALID_REQUEST', 'Missing authenticated principal or request');
     }
-    const connection = await this.connections.getById(input.connectionId);
+    const connection = await this.connections.getById(input.connectionId, principal.tenantId);
     if (!connection || connection.tenantId !== principal.tenantId || !connection.enabled) {
       // Do not leak whether an inaccessible connection exists.
       throw new ConnectorError('NOT_FOUND', 'Connection unavailable');

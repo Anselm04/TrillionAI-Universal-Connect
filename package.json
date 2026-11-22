@@ -8,10 +8,15 @@
   },
   "scripts": {
     "test": "node --experimental-strip-types --test packages/*/test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:test:setup": "node scripts/setup-test-database.mjs"
   },
   "devDependencies": {
     "typescript": "~5.9.3",
-    "@types/node": "^22.15.0"
+    "@types/node": "^22.15.0",
+    "@types/pg": "^8.15.5"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
   }
 }
