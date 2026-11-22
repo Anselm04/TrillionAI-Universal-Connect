@@ -4,12 +4,11 @@ import { SupabaseIdentityBoundary, IdentityBoundaryError, type IdentityAuth, typ
 const uid='11111111-1111-4111-8111-111111111111';
 const tenant='22222222-2222-4222-8222-222222222222';
 const session='33333333-3333-4333-8333-333333333333';
-const token=(claims:Record<string,unknown>={})=>'signed.'+Buffer.from(JSON.stringify({sub:uid,session_id:session,...claims})).toString('base64url')+'.signature';
+const token=(claims:Record<string,unknown>={})=>'signed.'+Buffer.from(JSON.stringify({sub:uid,session_id:session,aal:'aal1',...claims})).toString('base64url')+'.signature';
 function setup(options:{verified?:boolean; active?:boolean;role?:'owner'|'admin'|'staff'|'customer';status?:string;aal?:string;directoryError?:boolean}={}){
   let authCalls=0; let membershipCalls=0;
   const auth:IdentityAuth={
     getUser:async()=>{authCalls++;return {user:options.verified===false?null:{id:uid,email_confirmed_at:'2026-01-01T00:00:00Z'}}},
-    getAssuranceLevel:async()=>({level:options.aal??'aal1'}),
   };
   const directory:IdentityDirectory={
     sessionActive:async()=>({active:options.active??true}),
@@ -27,7 +26,7 @@ test('verified user with active session and membership yields tenant principal',
 });
 test('admin and owner require MFA',async()=>{
   await assert.rejects(setup({role:'admin'}).boundary.authenticate(token(),tenant),rejected('FORBIDDEN'));
-  const result=await setup({role:'owner',aal:'aal2'}).boundary.authenticate(token(),tenant);
+  const result=await setup({role:'owner',aal:'aal2'}).boundary.authenticate(token({aal:'aal2'}),tenant);
   assert.equal(result.organisationRole,'owner');assert.equal(result.principal.assuranceLevel,2);
 });
 test('invalid bearer never accesses membership',async()=>{
@@ -50,4 +49,4 @@ test('invalid tenant ID rejected before provider call',async()=>{
 test('spoofed session subject denied after token verification',async()=>assert.rejects(
   setup().boundary.authenticate(token({sub:'55555555-5555-4555-8555-555555555555'}),tenant),rejected('UNAUTHENTICATED')));
 test('bad assurance fails closed',async()=>assert.rejects(
-  setup({aal:'invalid'}).boundary.authenticate(token(),tenant),rejected('UNAUTHENTICATED')));
+  setup({aal:'invalid'}).boundary.authenticate(token({aal:'invalid'}),tenant),rejected('UNAUTHENTICATED')));
