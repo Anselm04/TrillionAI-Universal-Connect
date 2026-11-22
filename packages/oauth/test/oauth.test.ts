@@ -19,7 +19,7 @@ test('provider configuration denies insecure and local URLs',()=>{
   const transport:ProviderTransport={send:async()=>respond({})};
   const vault={} as OAuthVault;
   const pool={connect:async()=>{throw Error('db access must not occur')}};
-  for(const url of ['http://auth.example.com/token','https://127.0.0.1/token','https://localhost/token','https://auth.example.com:443/token']){
+  for(const url of ['http://auth.example.com/token','https://127.0.0.1/token','https://localhost/token','https://auth.example.com:8443/token']){
     assert.throws(()=>new OAuthConnectionService(pool,keys,vault,transport,[{...provider,tokenUrl:url}]),OAuthError);
   }
 });
