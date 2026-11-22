@@ -69,8 +69,11 @@ if(process.env.TEST_ADMIN_DATABASE_URL && process.env.TEST_RUNTIME_DATABASE_URL)
       assert.equal((await call('/delegations/invalid','POST',{expiresMinutes:5})).status,403);
       assert.equal((await call(delegation,'POST',{expiresMinutes:5})).status,201);
       assert.equal((await call(delegation,'POST',{expiresMinutes:5})).status,409,'duplicate requires explicit revoke');
+      const roleState=await manager.query("SELECT current_user AS role, current_setting('app.tenant_id',true) AS scope");
+      assert.equal(roleState.rows[0].role,'uc_manager','must use dedicated limited management role');
+      assert.ok(roleState.rows[0].scope===null||roleState.rows[0].scope==='','tenant scoping must be transaction-local');
       const active=await manager.query('SELECT count(*)::int AS count FROM universal_connect.workflow_delegations');
-      assert.equal(active.rows.length,0,'RLS denies manager without tenant context');
+      assert.equal(active.rows[0].count,0,'RLS denies manager without tenant context');
       const storeCheck=await admin.query('SELECT revoked_at FROM universal_connect.workflow_delegations WHERE run_id=$1',[runId]);
       assert.equal(storeCheck.rows.length,1);assert.equal(storeCheck.rows[0].revoked_at,null);
       assert.equal((await call(delegation,'DELETE')).status,200);
