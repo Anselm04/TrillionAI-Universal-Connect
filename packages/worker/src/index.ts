@@ -1,8 +1,9 @@
 import {randomUUID} from 'node:crypto';
+import {createClient} from '@supabase/supabase-js';
 import type {GatewayInput,Principal} from '../../gateway/src/index.ts';
 import type {CapabilityResult} from '../../connector-sdk/src/index.ts';
 import {inTenantTransaction,type TenantPool} from '../../persistence/src/index.ts';
-import {PostgresWorkflowEngine,type ClaimedStep,type WorkflowExecutor,type WorkflowError} from '../../workflow/src/index.ts';
+import {PostgresWorkflowEngine,type WorkflowExecutor} from '../../workflow/src/index.ts';
 
 export type WorkerRole='owner'|'admin'|'staff'|'customer';
 export interface ValidatedActor {
@@ -149,4 +150,32 @@ export async function runAuthorizedStep(
     await engine.fail(claimed);
     throw error;
   }
+}
+
+/** Server-to-server directory query using the same Supabase authority as TrillionAI Identity.
+ * Do not treat a database role string as proof of an authenticated user session. */
+export function makeSupabaseActorDirectory(config:{
+  supabaseUrl:string; serviceRoleKey:string
+}):ActorDirectory {
+  if(!config.supabaseUrl?.startsWith('https://')||!config.serviceRoleKey?.trim())
+    throw new WorkerAuthorizationError();
+  const client=createClient(config.supabaseUrl,config.serviceRoleKey,{
+    auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}
+  });
+  return {
+    async lookup(actorId,tenantId){
+      const {data:user,error:userError}=await client.auth.admin.getUserById(actorId);
+      if(userError)throw new WorkerAuthorizationError();
+      if(!user?.user||!user.user.email_confirmed_at)return null;
+      const {data:membership,error:membershipError}=await client.from('identity_memberships')
+        .select('role,status').eq('organisation_id',tenantId).eq('user_id',actorId).maybeSingle();
+      if(membershipError)throw new WorkerAuthorizationError();
+      if(!membership)return null;
+      return {
+        id:user.user.id,tenantId,role:membership.role as WorkerRole,
+        emailVerified:Boolean(user.user.email_confirmed_at),
+        activeMembership:membership.status==='active'
+      };
+    }
+  };
 }
