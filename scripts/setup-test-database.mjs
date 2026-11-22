@@ -12,6 +12,7 @@ try {
     'infrastructure/database/003_credential_vault.sql',
     'infrastructure/database/004_provider_rate_limits.sql',
     'infrastructure/database/005_durable_workflows.sql',
+    'infrastructure/database/006_workflow_worker_authorization.sql',
   ]) {
     await client.query(await readFile(path, 'utf8'));
   }
