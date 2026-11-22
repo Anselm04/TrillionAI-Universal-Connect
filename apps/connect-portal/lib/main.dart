@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_web_libraries_in_flutter
+// Browser redirect handling is intentional in this web-only entrypoint.
 import 'dart:html' as html;
 
 import 'package:flutter/material.dart';
