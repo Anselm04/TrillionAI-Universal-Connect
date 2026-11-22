@@ -74,6 +74,40 @@ class ConnectionApi {
     throw const ConnectionApiException('Invalid connection response.');
   }
 
+  Future<List<Map<String, dynamic>>> listOrganizations() async {
+    if (baseUri.scheme != 'https' || baseUri.path != '/' ||
+        baseUri.hasQuery || baseUri.hasFragment) {
+      throw const ConnectionApiException('HTTPS API origin required');
+    }
+    final token = await accessToken();
+    if (token.isEmpty) {
+      throw const ConnectionApiException('Sign in before choosing an organization.');
+    }
+    try {
+      final response = await _client.get(
+        baseUri.resolve('/organizations'),
+        headers: {'authorization': 'Bearer $token', 'accept': 'application/json'},
+      );
+      if (response.statusCode != 200) {
+        throw const ConnectionApiException('Organization access denied or unavailable.');
+      }
+      final payload = jsonDecode(response.body);
+      if (payload is! Map<String, dynamic> || payload['organizations'] is! List) {
+        throw const ConnectionApiException('Invalid organization list.');
+      }
+      return (payload['organizations'] as List).map((org) {
+        if (org is! Map<String, dynamic>) {
+          throw const ConnectionApiException('Invalid organization.');
+        }
+        return org;
+      }).toList();
+    } on ConnectionApiException {
+      rethrow;
+    } catch (_) {
+      throw const ConnectionApiException('Organization service unavailable.');
+    }
+  }
+
   Future<Map<String, dynamic>> createManagedConnection(String tenantId) async {
     final result = await _managedRequest('POST', tenantId, body: {});
     final connection = result['connection'];
