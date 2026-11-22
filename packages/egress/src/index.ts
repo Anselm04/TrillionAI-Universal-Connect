@@ -16,8 +16,9 @@ export function isPublicAddress(address:string):boolean {
   try {
     if(!isIP(address))return false;
     const parsed=ipaddr.parse(address);
-    if(parsed.kind()==='ipv6' && parsed.isIPv4MappedAddress()) {
-      return parsed.toIPv4Address().range()==='unicast';
+    if(parsed.kind()==='ipv6') {
+      const ipv6=parsed as ipaddr.IPv6;
+      if(ipv6.isIPv4MappedAddress())return ipv6.toIPv4Address().range()==='unicast';
     }
     return parsed.range()==='unicast';
   }catch{return false}
@@ -64,7 +65,6 @@ export function createGuardedNetworkTransport(options:EgressOptions):ProviderTra
         },()=>callback(new EgressDenied(),'',4));
       },
     },
-    maxRedirections:0,
   });
   return {
     async send(url:string, init:RequestInit):Promise<Response>{
