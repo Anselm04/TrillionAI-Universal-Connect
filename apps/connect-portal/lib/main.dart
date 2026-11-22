@@ -248,6 +248,21 @@ class _ConnectHomeState extends State<ConnectHome> {
     });
   }
 
+  Future<void> _verifyConnection() async {
+    final tenant=_tenant.text.trim();
+    final connection=_connection.text.trim();
+    if(!validTenantId(tenant)||!validConnectionId(connection))return;
+    await _execute(() async {
+      final status=await _api.verifyManagedConnection(tenant,connection);
+      final found=await _api.listManagedConnections(tenant);
+      setState(() {
+        _managedConnections=found;
+        _message='GitHub verification: ${status['status'] ?? 'unavailable'}. '
+          'Only a recently verified token is marked connected.';
+      });
+    });
+  }
+
   Future<void> _disconnect() async {
     final tenant = _tenant.text.trim();
     final connection = _connection.text.trim();
@@ -257,9 +272,9 @@ class _ConnectHomeState extends State<ConnectHome> {
       builder: (context) => AlertDialog(
         title: const Text('Disconnect GitHub?'),
         content: const Text(
-          'Local credentials will be deleted. GitHub provider-side token '
-          'revocation is not yet implemented. You may also revoke access '
-          'under GitHub Settings → Applications.',
+          'TrillionAI will request GitHub to revoke the OAuth token and then '
+          'remove local credentials. If GitHub cannot confirm revocation, '
+          'the connection is retained so you can retry.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
@@ -273,7 +288,7 @@ class _ConnectHomeState extends State<ConnectHome> {
       setState(() {
         _connectedThisSession = false;
         _message = deleted
-            ? 'Local credentials removed. Revoke the OAuth app in GitHub settings to invalidate provider access.'
+            ? 'GitHub confirmed token revocation and local credentials were removed.'
             : 'No local credentials were found for that connection.';
       });
     });
@@ -456,9 +471,15 @@ class _ConnectHomeState extends State<ConnectHome> {
                 ),
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
+                  icon: const Icon(Icons.verified_user_outlined),
+                  onPressed: _busy ? null : _verifyConnection,
+                  label: const Text('Verify GitHub connection'),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
                   icon: const Icon(Icons.link_off),
                   onPressed: _busy ? null : _disconnect,
-                  label: const Text('Disconnect GitHub'),
+                  label: const Text('Revoke and disconnect GitHub'),
                 ),
                 if (_connectedThisSession)
                   const Padding(
