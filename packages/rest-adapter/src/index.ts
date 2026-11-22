@@ -1,6 +1,7 @@
 import {setTimeout as sleep} from 'node:timers/promises';
 import type {Connector,ConnectorManifest,ExecutionContext,CapabilityRequest,CapabilityResult} from '../../connector-sdk/src/index.ts';
 import type {PostgresCredentialVault,VaultScope} from '../../vault/src/index.ts';
+import type {ProviderRateLimiter} from '../../rate-limit/src/index.ts';
 
 /** A fixed provider-origin transport must enforce DNS/IP policy at the egress layer.
  * Never forward caller-supplied URLs, hosts, headers or methods to this transport. */
@@ -77,9 +78,10 @@ export class FixedRestConnector implements Connector {
   private readonly config:RestAdapterConfig;
   private readonly transport:ProviderTransport;
   private readonly credential?:CredentialRunner;
-  constructor(config:RestAdapterConfig,transport:ProviderTransport,credential?:CredentialRunner) {
+  private readonly limiter?:ProviderRateLimiter;
+  constructor(config:RestAdapterConfig,transport:ProviderTransport,credential?:CredentialRunner,limiter?:ProviderRateLimiter) {
     this.origin=cleanConfig(config);
-    this.config=config;this.transport=transport;this.credential=credential;
+    this.config=config;this.transport=transport;this.credential=credential;this.limiter=limiter;
     this.manifest={id:config.id,version:'1',state:config.verified?'verified':'implemented',
       capabilities:config.operations.map(x=>x.capability)};
     if(config.credentialName && !credential)throw new ProviderRequestError('CONFIG','Credential provider required');
@@ -112,6 +114,13 @@ export class FixedRestConnector implements Connector {
       const url=this.origin+operation.path;
       const attempts=operation.method==='GET'?1+(this.config.retries??1):1;
       for(let i=0;i<attempts;i++){
+        // Reserve a shared tenant/provider quota for EACH network attempt.
+        // Missing storage or a failed quota check must never fail open.
+        if(!this.limiter)throw new ProviderRequestError('DENIED','Outbound rate limiter not configured');
+        let allowed:boolean;
+        try {allowed=await this.limiter.acquire(context.tenantId,this.config.id)}
+        catch {throw new ProviderRequestError('UPSTREAM','Outbound rate limit service unavailable')}
+        if(!allowed)throw new ProviderRequestError('RATE_LIMITED','Tenant provider request limit reached');
         const controller=new AbortController();
         const timeout=setTimeout(()=>controller.abort(),this.config.timeoutMs??5000);
         try{
@@ -145,7 +154,4 @@ export class FixedRestConnector implements Connector {
 export function vaultCredentialRunner(vault:Pick<PostgresCredentialVault,'withCredential'>):CredentialRunner{
   return (scope,name,use)=>vault.withCredential(scope,name,use);
 }
-/** Default production network transport MUST use a separately hardened egress proxy.
- * This fetch transport is suitable only for fixed infrastructure-approved origins
- * with DNS/IP allowlisting and private-network blocking enforced outside this process. */
-export const networkTransport:ProviderTransport={send:(url,init)=>fetch(url,init)};
+/** Use createGuardedNetworkTransport() from the egress package for approved DNS-pinned connections. */
