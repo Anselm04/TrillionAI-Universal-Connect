@@ -37,9 +37,9 @@ if (url && adminUrl) {
     const runtime=new pg.Pool({connectionString:url});
     const admin=new pg.Pool({connectionString:adminUrl});
     try {
-      await admin.query("DELETE FROM universal_connect.audit_events WHERE tenant_id LIKE 'test-%'");
-      await admin.query("DELETE FROM universal_connect.approvals WHERE tenant_id LIKE 'test-%'");
-      await admin.query("DELETE FROM universal_connect.connections WHERE tenant_id LIKE 'test-%'");
+      await admin.query("DELETE FROM universal_connect.audit_events WHERE tenant_id IN ('test-tenant-a','test-tenant-b')");
+      await admin.query("DELETE FROM universal_connect.approvals WHERE tenant_id IN ('test-tenant-a','test-tenant-b')");
+      await admin.query("DELETE FROM universal_connect.connections WHERE tenant_id IN ('test-tenant-a','test-tenant-b')");
       await admin.query(`INSERT INTO universal_connect.connections(id,tenant_id,connector_id,enabled,capabilities)
        VALUES ('test-conn-a','test-tenant-a','crm.example',true,'["records.read","records.write"]'::jsonb),
               ('test-conn-b','test-tenant-b','crm.example',true,'["records.read"]'::jsonb)`);
@@ -67,9 +67,9 @@ if (url && adminUrl) {
       assert.equal((await admin.query("SELECT count(*)::int AS n FROM universal_connect.audit_events WHERE tenant_id='test-tenant-a'")).rows[0].n,1);
       await assert.rejects(runtime.query("DELETE FROM universal_connect.audit_events WHERE tenant_id='test-tenant-a'"));
     } finally {
-      await admin.query("DELETE FROM universal_connect.audit_events WHERE tenant_id LIKE 'test-%'");
-      await admin.query("DELETE FROM universal_connect.approvals WHERE tenant_id LIKE 'test-%'");
-      await admin.query("DELETE FROM universal_connect.connections WHERE tenant_id LIKE 'test-%'");
+      await admin.query("DELETE FROM universal_connect.audit_events WHERE tenant_id IN ('test-tenant-a','test-tenant-b')");
+      await admin.query("DELETE FROM universal_connect.approvals WHERE tenant_id IN ('test-tenant-a','test-tenant-b')");
+      await admin.query("DELETE FROM universal_connect.connections WHERE tenant_id IN ('test-tenant-a','test-tenant-b')");
       await runtime.end();
       await admin.end();
     }
