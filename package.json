@@ -14,8 +14,7 @@
   "devDependencies": {
     "typescript": "~5.9.3",
     "@types/node": "^22.15.0",
-    "@types/pg": "^8.15.5",
-    "@types/ipaddr.js": "^2.2.0"
+    "@types/pg": "^8.15.5"
   },
   "dependencies": {
     "pg": "^8.16.3",
