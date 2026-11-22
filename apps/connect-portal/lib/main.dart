@@ -72,7 +72,7 @@ class _ConnectHomeState extends State<ConnectHome> {
     super.initState();
     _initialUri = Uri.base;
     _api = ConnectionApi(
-      baseUri: Uri.parse(html.window.location.origin!),
+      baseUri: Uri.parse('${html.window.location.origin}/'),
       accessToken: () async {
         final client = Supabase.instance.client;
         final session = client.auth.currentSession;
