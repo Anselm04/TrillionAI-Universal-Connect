@@ -43,8 +43,20 @@ if(process.env.TEST_ADMIN_DATABASE_URL&&process.env.TEST_RUNTIME_DATABASE_URL){
         VALUES($1,$2,$3,'oauth_tokens','v1',$4,$5,$6)`,[
           'test-selfservice-credential',tenant,a.id,Buffer.alloc(12),Buffer.alloc(16),Buffer.from('fake-ciphertext')
         ]);
+      assert.equal((await store.get(identity(),a.id))?.status,'verification_required');
+      assert.equal(await store.recordHealth(identity(tenant,outsider),a.id,'connected'),false);
+      assert.equal(await store.recordHealth(identity(),a.id,'connected'),true);
       assert.equal((await store.get(identity(),a.id))?.status,'connected');
+      assert.equal(await store.recordHealth(identity(),a.id,'reconnect_required'),true);
+      assert.equal((await store.get(identity(),a.id))?.status,'reconnect_required');
+      assert.equal(await store.recordHealth(identity(),a.id,'unavailable'),true);
+      assert.equal((await store.get(identity(),a.id))?.status,'unavailable');
+      await admin.query(`UPDATE universal_connect.connection_health
+        SET checked_at=now()-interval '2 hours',state='connected'
+        WHERE connection_id=$1`,[a.id]);
+      assert.equal((await store.get(identity(),a.id))?.status,'verification_required');
     }finally{
+      await admin.query('DELETE FROM universal_connect.connection_health WHERE tenant_id=$1 AND connection_id=ANY($2)',[tenant,createdIds]);
       await admin.query('DELETE FROM universal_connect.credentials WHERE tenant_id=$1 AND connection_id=ANY($2)',[tenant,createdIds]);
       await admin.query('DELETE FROM universal_connect.connection_owners WHERE tenant_id=$1 AND connection_id=ANY($2)',[tenant,createdIds]);
       await admin.query('DELETE FROM universal_connect.connections WHERE tenant_id=$1 AND id=ANY($2)',[tenant,createdIds]);
