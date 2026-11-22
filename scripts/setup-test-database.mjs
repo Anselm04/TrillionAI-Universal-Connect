@@ -10,6 +10,7 @@ try {
     'infrastructure/database/001_tenant_persistence.sql',
     'infrastructure/database/002_runtime_grants.sql',
     'infrastructure/database/003_credential_vault.sql',
+    'infrastructure/database/004_provider_rate_limits.sql',
   ]) {
     await client.query(await readFile(path, 'utf8'));
   }
