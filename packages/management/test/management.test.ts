@@ -24,7 +24,7 @@ if(process.env.TEST_ADMIN_DATABASE_URL && process.env.TEST_RUNTIME_DATABASE_URL)
   test('real PostgreSQL: authenticated management issues/revokes delegations, reconciles only verified provider evidence',async()=>{
     const admin=new pg.Pool({connectionString:process.env.TEST_ADMIN_DATABASE_URL});
     const runtime=new pg.Pool({connectionString:process.env.TEST_RUNTIME_DATABASE_URL});
-    const managerUrl=process.env.TEST_ADMIN_DATABASE_URL.replace('postgres:ci-only-admin@','uc_manager:ci-only-manager@');
+    const managerUrl=process.env.TEST_ADMIN_DATABASE_URL!.replace('postgres:ci-only-admin@','uc_manager:ci-only-manager@');
     const manager=new pg.Pool({connectionString:managerUrl});
     const engine=new PostgresWorkflowEngine(runtime);
     const connId='test-management-conn';
