@@ -146,11 +146,6 @@ export function createManagementRouter(options:ManagementApiOptions):express.Rou
       tenantId:verified.principal.tenantId,reviewerId:verified.principal.subject,
       runId:req.params.runId,stepIndex,outcome,evidenceReference
     });
-    if(ok)await inTenantTransaction(options.pool,verified.principal.tenantId,client=>client.query(
-      `INSERT INTO universal_connect.workflow_management_audit
-       (id,tenant_id,run_id,operator_id,action) VALUES($1,$2,$3,$4,'recovery.accepted')`,
-      [randomUUID(),verified.principal.tenantId,req.params.runId,verified.principal.subject]
-    ).then(()=>undefined));
     res.status(ok?200:409).json({reconciled:ok});
   }));
   return router;
