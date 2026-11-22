@@ -88,4 +88,22 @@ void main() {
     api.close();
   });
 
+  test('organization discovery reads verified membership list, not caller-supplied tenant', () async {
+    final calls = <http.Request>[];
+    final api = ConnectionApi(
+      baseUri: Uri.parse('https://app.example.com/'),
+      accessToken: () async => 'verified-user-token',
+      client: MockClient((req) async {
+        calls.add(req);
+        return http.Response('{"organizations":[{"id":"11111111-1111-4111-8111-111111111111","role":"customer"}]}',200);
+      }),
+    );
+    final list=await api.listOrganizations();
+    expect(list.single['role'],'customer');
+    expect(calls.single.url.path,'/organizations');
+    expect(calls.single.headers['authorization'],'Bearer verified-user-token');
+    expect(calls.single.headers.containsKey('x-organisation-id'),isFalse);
+    api.close();
+  });
+
 }
