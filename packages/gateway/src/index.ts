@@ -54,13 +54,25 @@ export interface GatewayInput {
   readonly approvalId?: string;
 }
 export class ExecutionGateway {
+  private readonly registry: ConnectorRegistry;
+  private readonly connections: ConnectionStore;
+  private readonly policies: PolicyEngine;
+  private readonly approvals: ApprovalStore;
+  private readonly audit: AuditSink;
+
   constructor(
-    private readonly registry: ConnectorRegistry,
-    private readonly connections: ConnectionStore,
-    private readonly policies: PolicyEngine,
-    private readonly approvals: ApprovalStore,
-    private readonly audit: AuditSink
-  ) {}
+    registry: ConnectorRegistry,
+    connections: ConnectionStore,
+    policies: PolicyEngine,
+    approvals: ApprovalStore,
+    audit: AuditSink
+  ) {
+    this.registry = registry;
+    this.connections = connections;
+    this.policies = policies;
+    this.approvals = approvals;
+    this.audit = audit;
+  }
   async execute(principal: Principal, input: GatewayInput): Promise<CapabilityResult> {
     if (!principal || !principal.subject?.trim() || !principal.tenantId?.trim() ||
       !Number.isInteger(principal.assuranceLevel) || !input?.connectionId?.trim() ||
