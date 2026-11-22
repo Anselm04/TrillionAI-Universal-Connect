@@ -11,8 +11,10 @@ export interface FieldMapping {
   readonly required?: boolean;
 }
 export class MappingError extends Error {
-  constructor(public readonly code: 'INVALID_MAPPING'|'MISSING_FIELD'|'INVALID_VALUE', message: string) {
+  readonly code: 'INVALID_MAPPING'|'MISSING_FIELD'|'INVALID_VALUE';
+  constructor(code: MappingError['code'], message: string) {
     super(message);
+    this.code = code;
     this.name = 'MappingError';
   }
 }
