@@ -62,7 +62,8 @@ if(process.env.TEST_ADMIN_DATABASE_URL && process.env.TEST_RUNTIME_DATABASE_URL)
       await assert.rejects(vault.withCredential(a,'access_token',async raw=>raw.toString()),(e:unknown)=>e instanceof VaultError&&e.code==='NOT_FOUND');
       const unscoped=await runtime.query('SELECT * FROM universal_connect.credentials');
       assert.equal(unscoped.rows.length,0);
-      await assert.rejects(runtime.query("SELECT * FROM universal_connect.credentials WHERE tenant_id=$1",[a.tenantId]).then(r=>{if(r.rows.length)throw new Error('unexpected rows');}),/unexpected rows|./);
+      const tenantless=await runtime.query("SELECT * FROM universal_connect.credentials WHERE tenant_id=$1",[a.tenantId]);
+      assert.equal(tenantless.rows.length,0);
     } finally {
       await admin.query("DELETE FROM universal_connect.credentials WHERE tenant_id LIKE 'test-vault-%'");
       await admin.query("DELETE FROM universal_connect.connections WHERE tenant_id LIKE 'test-vault-%'");
