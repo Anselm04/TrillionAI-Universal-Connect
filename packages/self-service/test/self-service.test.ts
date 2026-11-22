@@ -76,7 +76,9 @@ if(process.env.TEST_ADMIN_DATABASE_URL&&process.env.TEST_RUNTIME_DATABASE_URL){
         if(token!=='identity-token'||t!==tenant)throw Error('denied');
         return identity();
       }},
-      limiter:{acquire:async()=>true}
+      limiter:{acquire:async()=>true},
+      githubLifecycle:{check:async()=> 'reconnect_required' as const,
+        revoke:async()=>{throw Error('not invoked')}}
     }));
     const server=app.listen(0,'127.0.0.1');
     await once(server,'listening');
@@ -96,11 +98,23 @@ if(process.env.TEST_ADMIN_DATABASE_URL&&process.env.TEST_RUNTIME_DATABASE_URL){
       const id=created.json.connection.id as string;ids.push(id);
       assert.equal((await send('GET','/')).json.connections.length,1);
       assert.equal((await send('GET','/'+id)).json.connection.status,'awaiting_authorization');
+      await admin.query(`INSERT INTO universal_connect.credentials
+        (id,tenant_id,connection_id,name,key_version,nonce,tag,ciphertext)
+        VALUES($1,$2,$3,'oauth_tokens','v1',$4,$5,$6)`,[
+          'test-verify-credential',tenant,id,Buffer.alloc(12),Buffer.alloc(16),Buffer.from('fake-encrypted-bytes')
+        ]);
+      assert.equal((await send('GET','/'+id)).json.connection.status,'verification_required');
+      const verified=await send('POST','/'+id+'/verify',{});
+      assert.equal(verified.status,200);
+      assert.equal(verified.json.connection.status,'reconnect_required');
+      assert.equal((await send('POST','/other-connection/verify',{})).status,404);
       assert.equal((await send('GET','/not-a-connection')).status,404);
       assert.equal((await send('GET','/',undefined,{...headers,'x-organisation-id':foreignTenant})).status,403);
       assert.ok(checks>=4);
     }finally{
       await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));
+      await admin.query('DELETE FROM universal_connect.connection_health WHERE connection_id=ANY($1)',[ids]);
+      await admin.query('DELETE FROM universal_connect.credentials WHERE connection_id=ANY($1)',[ids]);
       await admin.query('DELETE FROM universal_connect.connection_owners WHERE connection_id=ANY($1)',[ids]);
       await admin.query('DELETE FROM universal_connect.connections WHERE id=ANY($1)',[ids]);
       await runtime.end();await admin.end();
