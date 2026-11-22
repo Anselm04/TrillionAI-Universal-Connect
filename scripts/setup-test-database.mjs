@@ -15,6 +15,7 @@ try {
     'infrastructure/database/006_workflow_worker_authorization.sql',
     'infrastructure/database/007_workflow_management.sql',
     'infrastructure/database/008_oauth_connections.sql',
+    'infrastructure/database/009_oauth_connection_audit.sql',
   ]) {
     await client.query(await readFile(path, 'utf8'));
   }
