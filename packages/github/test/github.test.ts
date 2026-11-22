@@ -4,6 +4,7 @@ import {GitHubReadConnector,GitHubProviderError} from '../src/index.ts';
 import {githubOAuthProvider} from '../src/oauth.ts';
 import {ConnectorRegistry} from '../../connector-sdk/src/index.ts';
 import type {ProviderTransport} from '../../rest-adapter/src/index.ts';
+import type {VaultScope} from '../../vault/src/index.ts';
 const ctx={tenantId:'tenant-a',actorId:'user-a',connectionId:'connection-a',permittedCapabilities:['github.profile.read','github.repositories.read']};
 const tokenBytes=(expiresAt?:number)=>Buffer.from(JSON.stringify({
   token_type:'Bearer',access_token:'test-oauth-token',...(expiresAt?{expires_at:expiresAt}:{})
@@ -23,7 +24,7 @@ function fixture(override?:{
       id:123,login:'example',name:'Example User',avatar_url:null,html_url:'https://github.com/example'
     }),{headers:{'content-type':'application/json','x-github-request-id':'r-test'}})
   }};
-  const vault={withCredential:async(_scope:unknown,name:string,use:(raw:Buffer)=>Promise<unknown>)=>{
+  const vault={withCredential:async <T>(_scope:VaultScope,name:string,use:(raw:Buffer)=>Promise<T>):Promise<T>=>{
     assert.equal(name,'oauth_tokens');
     const raw=Buffer.from(override?.bytes??tokenBytes());
     try{return await use(raw)}finally{raw.fill(0);wiped=true}
