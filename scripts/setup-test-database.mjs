@@ -13,10 +13,12 @@ try {
     'infrastructure/database/004_provider_rate_limits.sql',
     'infrastructure/database/005_durable_workflows.sql',
     'infrastructure/database/006_workflow_worker_authorization.sql',
+    'infrastructure/database/007_workflow_management.sql',
   ]) {
     await client.query(await readFile(path, 'utf8'));
   }
-  console.log('PostgreSQL integration-test schema and isolated application role ready');
+  await client.query("ALTER ROLE uc_manager LOGIN PASSWORD 'ci-only-manager'");
+  console.log('PostgreSQL integration-test schema, runtime role and manager role ready');
 } finally {
   await client.end();
 }
