@@ -16,7 +16,8 @@ export class SelfServiceDenied extends Error {
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const connectionId=/^[a-zA-Z0-9_-]{1,128}$/;
 export class PostgresSelfServiceConnections {
-  constructor(private readonly pool:TenantPool){}
+  private readonly pool:TenantPool;
+  constructor(pool:TenantPool){this.pool=pool}
   async create(identity:VerifiedIdentity):Promise<ManagedConnection>{
     const tenant=identity.principal.tenantId,actor=identity.principal.subject;
     const id=randomUUID().replaceAll('-','');
@@ -48,7 +49,7 @@ export class PostgresSelfServiceConnections {
          JOIN universal_connect.connection_owners o ON o.connection_id=c.id AND o.tenant_id=c.tenant_id
          WHERE c.tenant_id=$1 AND o.actor_id=$2 AND c.connector_id='github.oauth'
          ORDER BY c.created_at DESC,c.id LIMIT 20`,[tenant,actor]);
-      return rows.rows.map(row=>({
+      return rows.rows.map((row):ManagedConnection=>({
         id:row.id,providerId:'github.oauth',
         status:!row.enabled?'disconnected':row.has_token?'connected':'awaiting_authorization',
         createdAt:new Date(row.created_at).toISOString()
