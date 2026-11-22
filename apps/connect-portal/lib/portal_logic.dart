@@ -59,38 +59,7 @@ class PendingAuthorization {
 }
 
 bool validTenantId(String value) => RegExp(
-  r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12},
-).hasMatch(value);
-
-bool validConnectionId(String value) =>
-    value.length <= 128 &&
-    RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(value);
-
-bool validState(String value) =>
-    value.length >= 32 &&
-    value.length <= 128 &&
-    RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(value);
-
-bool callbackMatches(Uri url, PendingAuthorization pending) =>
-    url.path == '/oauth/callback' &&
-    url.queryParameters['state'] == pending.state &&
-    (url.queryParameters['code']?.isNotEmpty ?? false) &&
-    !(url.queryParameters.containsKey('error'));
-
-Uri requireGitHubAuthorizationUrl(String raw) {
-  final uri = Uri.tryParse(raw);
-  if (uri == null ||
-      uri.scheme != 'https' ||
-      uri.host != 'github.com' ||
-      uri.path != '/login/oauth/authorize' ||
-      !validState(uri.queryParameters['state'] ?? '') ||
-      uri.queryParameters['response_type'] != 'code' ||
-      uri.queryParameters['code_challenge_method'] != 'S256') {
-    throw const FormatException('Invalid GitHub authorization URL');
-  }
-  return uri;
-}
-,
+  r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\$',
 ).hasMatch(value);
 
 bool validConnectionId(String value) =>
