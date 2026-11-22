@@ -3,10 +3,9 @@ import pg from 'pg';
 import type { AuditSink, ApprovalStore, ConnectionRecord, ConnectionStore } from '../../gateway/src/index.ts';
 import type { CapabilityRequest } from '../../connector-sdk/src/index.ts';
 
-export type SqlPool = Pick<pg.Pool, 'connect'>;
 type QueryResult = { rows: any[]; rowCount: number | null };
 export interface TenantClient {
-  query(sql: string, values?: readonly unknown[]): Promise<QueryResult>;
+  query(sql: string, values?: unknown[]): Promise<QueryResult>;
   release(): void;
 }
 export interface TenantPool {
@@ -61,7 +60,8 @@ export function approvalRequestDigest(request: CapabilityRequest): string {
   return createHash('sha256').update(canonical).digest('hex');
 }
 export class PostgresConnectionStore implements ConnectionStore {
-  constructor(private readonly pool: TenantPool) {}
+  private readonly pool: TenantPool;
+  constructor(pool: TenantPool) { this.pool = pool; }
   async getById(id: string, tenantId: string): Promise<ConnectionRecord | null> {
     return inTenantTransaction(this.pool, tenantId, async client => {
       const result = await client.query(
@@ -78,7 +78,8 @@ export class PostgresConnectionStore implements ConnectionStore {
   }
 }
 export class PostgresApprovalStore implements ApprovalStore {
-  constructor(private readonly pool: TenantPool) {}
+  private readonly pool: TenantPool;
+  constructor(pool: TenantPool) { this.pool = pool; }
   async verifyAndConsume(input: Parameters<ApprovalStore['verifyAndConsume']>[0]): Promise<boolean> {
     const {principal,connection,request,approvalId} = input;
     const digest = approvalRequestDigest(request);
@@ -96,7 +97,8 @@ export class PostgresApprovalStore implements ApprovalStore {
   }
 }
 export class PostgresAuditSink implements AuditSink {
-  constructor(private readonly pool: TenantPool) {}
+  private readonly pool: TenantPool;
+  constructor(pool: TenantPool) { this.pool = pool; }
   async record(event: Parameters<AuditSink['record']>[0]): Promise<void> {
     await inTenantTransaction(this.pool, event.tenantId, async client => {
       await client.query(
