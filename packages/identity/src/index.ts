@@ -1,10 +1,12 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 import type { Principal } from '../../gateway/src/index.ts';
 
 export type OrganisationRole = 'owner' | 'admin' | 'staff' | 'customer';
 export class IdentityBoundaryError extends Error {
-  constructor(readonly code: 'UNAUTHENTICATED' | 'FORBIDDEN' | 'IDENTITY_UNAVAILABLE', message: string) {
+  readonly code: 'UNAUTHENTICATED' | 'FORBIDDEN' | 'IDENTITY_UNAVAILABLE';
+  constructor(code: IdentityBoundaryError['code'], message: string) {
     super(message);
+    this.code = code;
     this.name = 'IdentityBoundaryError';
   }
 }
@@ -45,7 +47,8 @@ const identityProblem = (code: IdentityBoundaryError['code'], msg: string) =>
   new IdentityBoundaryError(code,msg);
 
 export class SupabaseIdentityBoundary {
-  constructor(private readonly dependencies:IdentityDependencies) {}
+  private readonly dependencies: IdentityDependencies;
+  constructor(dependencies:IdentityDependencies) { this.dependencies = dependencies; }
   async authenticate(accessToken: string, tenantId:string):Promise<VerifiedIdentity> {
     if (typeof accessToken !== 'string' || accessToken.length < 12 || accessToken.length > 16384 ||
         typeof tenantId !== 'string' || !uuid.test(tenantId)) {
