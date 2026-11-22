@@ -1,4 +1,5 @@
 import {createHash,randomBytes} from 'node:crypto';
+import {isIP} from 'node:net';
 import {inTenantTransaction,type TenantPool} from '../../persistence/src/index.ts';
 import {encryptCredential,decryptCredential,type VaultKeyProvider,type VaultScope} from '../../vault/src/index.ts';
 import type {Principal} from '../../gateway/src/index.ts';
@@ -41,7 +42,9 @@ function validateProvider(provider:OAuthProvider):void {
     let url:URL;
     try{url=new URL(value)}catch{throw new OAuthError('INVALID')}
     if(url.protocol!=='https:'||url.username||url.password||url.hash||url.search||url.port||
-      !url.hostname.includes('.')||url.hostname==='localhost')throw new OAuthError('INVALID');
+      !url.hostname.includes('.')||isIP(url.hostname)!==0||
+      url.hostname==='localhost'||url.hostname.endsWith('.local')||
+      url.hostname.endsWith('.internal')||url.hostname.endsWith('.localhost'))throw new OAuthError('INVALID');
   }
   if(provider.authorizationUrl===provider.tokenUrl)throw new OAuthError('INVALID');
 }
