@@ -136,7 +136,7 @@ export class OAuthConnectionService {
     const send=async(secret?:Buffer):Promise<OAuthTokens>=>{
       const body=new URLSearchParams(params);
       if(p.requiresClientSecret){
-        if(!secret||!requiredString(secret.toString('utf8'))||/[\\r\\n]/.test(secret.toString('utf8')))
+        if(!secret||!requiredString(secret.toString('utf8'))||/[\r\n]/.test(secret.toString('utf8')))
           throw new OAuthError('UNAVAILABLE');
         body.set('client_secret',secret.toString('utf8'));
       }
