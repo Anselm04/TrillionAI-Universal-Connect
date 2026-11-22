@@ -125,7 +125,7 @@ export function createSelfServiceConnectionRouter(options:SelfServiceRoutesOptio
     next();
   });
   async function principal(req:Request):Promise<VerifiedIdentity>{
-    if(req.get('origin')!==origin.origin||req.get('sec-fetch-site')==='cross-site')
+    if((req.get('origin')!==origin.origin && !(req.method==='GET' && !req.get('origin') && req.get('sec-fetch-site')==='same-origin')) || req.get('sec-fetch-site')==='cross-site')
       throw new SelfServiceDenied();
     const token=/^Bearer ([^\s]+)$/i.exec(req.get('authorization')??'')?.[1];
     const tenant=req.get('x-organisation-id');
