@@ -16,7 +16,6 @@ export interface VerifiedIdentity {
 }
 export interface IdentityAuth {
   getUser(token: string): Promise<{ user: {id:string; email_confirmed_at?: string|null}|null; error?: unknown }>;
-  getAssuranceLevel(token: string): Promise<{level: string|null; error?:unknown}>;
 }
 export interface IdentityDirectory {
   sessionActive(userId: string, sessionId: string): Promise<{active:boolean|null; error?:unknown}>;
@@ -30,7 +29,7 @@ export interface IdentityDependencies {
 }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Only call after getUser() independently verified the actual access token. */
-function validatedSessionClaims(token:string, subject:string): string|null {
+function validatedSessionClaims(token:string, subject:string): { sessionId:string; aal:string }|null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3 || parts.some(p=>!p)) return null;
@@ -40,7 +39,8 @@ function validatedSessionClaims(token:string, subject:string): string|null {
     // Identity prohibits OAuth client-bound tokens in its account security endpoints.
     if (Object.hasOwn(payload,'client_id') || payload.sub !== subject ||
        typeof payload.session_id !== 'string' || !uuid.test(payload.session_id)) return null;
-    return payload.session_id;
+    if (payload.aal !== 'aal1' && payload.aal !== 'aal2') return null;
+    return {sessionId:payload.session_id,aal:payload.aal};
   } catch { return null; }
 }
 const identityProblem = (code: IdentityBoundaryError['code'], msg: string) =>
@@ -65,12 +65,12 @@ export class SupabaseIdentityBoundary {
     }
     if (!user.id || !uuid.test(user.id) || !user.email_confirmed_at)
       throw identityProblem('FORBIDDEN','Verified email is required');
-    const sessionId = validatedSessionClaims(accessToken,user.id);
-    if (!sessionId) throw identityProblem('UNAUTHENTICATED','Invalid session-bound access token');
+    const verifiedClaims = validatedSessionClaims(accessToken,user.id);
+    if (!verifiedClaims) throw identityProblem('UNAUTHENTICATED','Invalid session-bound access token');
 
     let active:boolean|null;
     try {
-      const result = await this.dependencies.directory.sessionActive(user.id,sessionId);
+      const result = await this.dependencies.directory.sessionActive(user.id,verifiedClaims.sessionId);
       if (result.error || typeof result.active !== 'boolean')
         throw identityProblem('IDENTITY_UNAVAILABLE','Session validation unavailable');
       active=result.active;
@@ -92,17 +92,8 @@ export class SupabaseIdentityBoundary {
     if(!member || member.status!=='active' || !['owner','admin','staff','customer'].includes(member.role))
       throw identityProblem('FORBIDDEN','Active organization membership required');
 
-    let assurance:string|null;
-    try {
-      const result=await this.dependencies.auth.getAssuranceLevel(accessToken);
-      if(result.error || !result.level) throw identityProblem('IDENTITY_UNAVAILABLE','MFA assurance unavailable');
-      assurance=result.level;
-    } catch(err) {
-      if(err instanceof IdentityBoundaryError) throw err;
-      throw identityProblem('IDENTITY_UNAVAILABLE','MFA assurance unavailable');
-    }
-    if (assurance !== 'aal1' && assurance !== 'aal2')
-      throw identityProblem('UNAUTHENTICATED','Unsupported authentication assurance level');
+    // Claims are inspected only after getUser verified the bearer AND active session RPC.
+    const assurance = verifiedClaims.aal;
     // An elevated organization role requires MFA just as privileged Identity routes do.
     if ((member.role==='owner'||member.role==='admin') && assurance !== 'aal2')
       throw identityProblem('FORBIDDEN','Elevated tenant role requires MFA');
@@ -128,10 +119,6 @@ export function makeSupabaseIdentityBoundary(config:{
         const {data,error}=await publicClient.auth.getUser(token);
         return {user:data.user?{id:data.user.id,email_confirmed_at:data.user.email_confirmed_at}:null,error};
       },
-      async getAssuranceLevel(token){
-        const {data,error}=await publicClient.auth.mfa.getAuthenticatorAssuranceLevel(token);
-        return {level:data?.currentLevel??null,error};
-      }
     },
     directory:{
       async sessionActive(userId,sessionId){
