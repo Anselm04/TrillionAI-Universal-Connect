@@ -32,4 +32,17 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run db:test:setup
+      - name: Verify runtime startup gate with disposable CI credentials
+        run: VAULT_KEY_BASE64=$(node -p "Buffer.alloc(32,31).toString('base64')") npm run service:preflight
+        env:
+          PORT: '8080'
+          PUBLIC_ORIGIN: https://connect.example.com
+          GITHUB_CALLBACK_URL: https://connect.example.com/oauth/callback
+          DATABASE_URL: ${{ env.TEST_RUNTIME_DATABASE_URL }}
+          SUPABASE_URL: https://example.supabase.co
+          SUPABASE_PUBLISHABLE_KEY: ci-public-fixture
+          SUPABASE_SERVICE_ROLE_KEY: ci-private-fixture
+          GITHUB_CLIENT_ID: client123456
+          GITHUB_CLIENT_SECRET: ci-not-real-github-secret
+          VAULT_KEY_VERSION: v1
       - run: npm test

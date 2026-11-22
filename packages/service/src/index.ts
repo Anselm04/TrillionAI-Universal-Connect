@@ -1,6 +1,7 @@
 import {Buffer} from 'node:buffer';
 import express, {type Express} from 'express';
 import type {Server} from 'node:http';
+import {assertRuntimeDatabaseReady} from './preflight.ts';
 import {createPostgresPool} from '../../persistence/src/index.ts';
 import {PostgresProviderRateLimiter} from '../../rate-limit/src/index.ts';
 import {PostgresCredentialVault,type VaultKeyProvider} from '../../vault/src/index.ts';
@@ -17,7 +18,7 @@ export interface ServiceConfig {
   port:number; origin:string; databaseUrl:string;
   supabaseUrl:string;publishableKey:string;serviceRoleKey:string;
   githubClientId:string;githubCallbackUrl:string;githubClientSecret:string;
-  vaultKeyBase64:string; vaultKeyVersion:string;
+  vaultKeyBase64:string; vaultKeyVersion:string; previousVaultKeys:Readonly<Record<string,string>>;
 }
 export class ConfigurationError extends Error {
   constructor(){super('Invalid or missing backend service configuration');this.name='ConfigurationError'}
@@ -58,17 +59,39 @@ export function parseServiceConfig(env:Record<string,string|undefined>):ServiceC
   vaultKey.fill(0);
   const vaultKeyVersion=required('VAULT_KEY_VERSION',128);
   if(!/^[A-Za-z0-9_-]{1,128}$/.test(vaultKeyVersion))throw new ConfigurationError();
+  // Previous keys remain available for decryption during staged rotation. Do not log them.
+  const previousVaultKeys:Record<string,string>=Object.create(null);
+  if(env.VAULT_PREVIOUS_KEYS_JSON!==undefined){
+    const raw=required('VAULT_PREVIOUS_KEYS_JSON',8192);
+    let parsed:unknown;
+    try{parsed=JSON.parse(raw)}catch{throw new ConfigurationError()}
+    if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||
+      Object.getPrototypeOf(parsed)!==Object.prototype||
+      Object.keys(parsed).length>16)throw new ConfigurationError();
+    for(const [version,encoded] of Object.entries(parsed)){
+      if(!/^[A-Za-z0-9_-]{1,128}$/.test(version)||version===vaultKeyVersion||
+        !safeString(encoded,128))throw new ConfigurationError();
+      const material=Buffer.from(encoded,'base64');
+      const valid=material.length===32&&material.toString('base64')===encoded;
+      material.fill(0);
+      if(!valid)throw new ConfigurationError();
+      previousVaultKeys[version]=encoded;
+    }
+  }
   return {port,origin,databaseUrl,supabaseUrl,publishableKey,serviceRoleKey,
-    githubClientId,githubCallbackUrl:callback,githubClientSecret,vaultKeyBase64,vaultKeyVersion};
+    githubClientId,githubCallbackUrl:callback,githubClientSecret,vaultKeyBase64,vaultKeyVersion,
+    previousVaultKeys};
 }
-/** One active key for initial deployment; keep prior versions in protected key storage before rotating.
- * This environment adapter never writes keys to source, logs or database. */
-export function environmentKeyProvider(config:Pick<ServiceConfig,'vaultKeyBase64'|'vaultKeyVersion'>):VaultKeyProvider {
+/** Key ring supplied by protected runtime secrets. Current key encrypts; historical keys decrypt.
+ * Never remove a historical version until no ciphertext or pending OAuth state references it. */
+export function environmentKeyProvider(config:Pick<ServiceConfig,'vaultKeyBase64'|'vaultKeyVersion'|'previousVaultKeys'>):VaultKeyProvider {
   return {
     currentVersion:async()=>config.vaultKeyVersion,
     keyForVersion:async(version)=>{
-      if(version!==config.vaultKeyVersion)throw new ConfigurationError();
-      return Buffer.from(config.vaultKeyBase64,'base64');
+      const encoded=version===config.vaultKeyVersion?config.vaultKeyBase64:
+        Object.hasOwn(config.previousVaultKeys,version)?config.previousVaultKeys[version]:undefined;
+      if(!encoded)throw new ConfigurationError();
+      return Buffer.from(encoded,'base64');
     }
   };
 }
@@ -103,8 +126,7 @@ export function createServiceApp(config:ServiceConfig,dependencies:ServiceDepend
   app.get('/health/live',(_req,res)=>res.status(200).json({status:'alive'}));
   app.get('/health/ready',async(_req,res)=>{
     try{
-      const client=await dependencies.pool.connect();
-      try {await client.query('SELECT 1')} finally{client.release()}
+      await assertRuntimeDatabaseReady(dependencies.pool);
       res.status(200).json({status:'ready'});
     }catch{res.status(503).json({status:'unavailable'})}
   });
@@ -150,8 +172,7 @@ export function createServiceDependencies(config:ServiceConfig):ServiceDependenc
 /** Will not bind a listening socket until database readiness succeeds. */
 export async function startService(config:ServiceConfig,dependencies:ServiceDependencies):
   Promise<{server:Server;shutdown:()=>Promise<void>}> {
-  const client=await dependencies.pool.connect();
-  try{await client.query('SELECT 1')}finally{client.release()}
+  await assertRuntimeDatabaseReady(dependencies.pool);
   const app=createServiceApp(config,dependencies);
   const server=await new Promise<Server>((resolve,reject)=>{
     const result=app.listen(config.port,'127.0.0.1');
