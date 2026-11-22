@@ -61,4 +61,31 @@ void main() {
     );
     api.close();
   });
+  test('self-service provisioning, listing and status remain scoped to tenant', () async {
+    final calls = <http.Request>[];
+    final api = ConnectionApi(
+      baseUri: Uri.parse('https://app.example.com/'),
+      accessToken: () async => 'verified-token',
+      client: MockClient((req) async {
+        calls.add(req);
+        if (req.method == 'POST') {
+          return http.Response('{"connection":{"id":"server-id","providerId":"github.oauth","status":"awaiting_authorization"}}',201);
+        }
+        if (req.url.path.endsWith('/server-id')) {
+          return http.Response('{"connection":{"id":"server-id","status":"connected"}}',200);
+        }
+        return http.Response('{"connections":[{"id":"server-id","status":"connected"}]}',200);
+      }),
+    );
+    const tenant = '11111111-1111-4111-8111-111111111111';
+    expect((await api.createManagedConnection(tenant))['id'],'server-id');
+    expect((await api.listManagedConnections(tenant)).single['id'],'server-id');
+    expect((await api.managedConnectionStatus(tenant,'server-id'))['status'],'connected');
+    expect(calls.first.method,'POST');
+    expect(calls.first.url.path,'/managed-connections');
+    expect(calls.every((req)=>req.headers['x-organisation-id']==tenant),isTrue);
+    expect(calls.every((req)=>req.headers['authorization']=='Bearer verified-token'),isTrue);
+    api.close();
+  });
+
 }

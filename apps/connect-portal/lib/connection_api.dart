@@ -74,6 +74,74 @@ class ConnectionApi {
     throw const ConnectionApiException('Invalid connection response.');
   }
 
+  Future<Map<String, dynamic>> createManagedConnection(String tenantId) async {
+    final result = await _managedRequest('POST', tenantId, body: {});
+    final connection = result['connection'];
+    if (connection is! Map<String, dynamic>) {
+      throw const ConnectionApiException('Invalid connection response.');
+    }
+    return connection;
+  }
+
+  Future<List<Map<String, dynamic>>> listManagedConnections(String tenantId) async {
+    final result = await _managedRequest('GET', tenantId);
+    final connections = result['connections'];
+    if (connections is! List) {
+      throw const ConnectionApiException('Invalid connection list.');
+    }
+    return connections.map((item) {
+      if (item is! Map<String, dynamic>) {
+        throw const ConnectionApiException('Invalid connection entry.');
+      }
+      return item;
+    }).toList();
+  }
+
+  Future<Map<String, dynamic>> managedConnectionStatus(String tenantId, String connectionId) async {
+    final result = await _managedRequest('GET', tenantId, path: '/$connectionId');
+    final connection = result['connection'];
+    if (connection is! Map<String, dynamic>) {
+      throw const ConnectionApiException('Invalid connection status.');
+    }
+    return connection;
+  }
+
+  Future<Map<String, dynamic>> _managedRequest(String method, String tenantId,
+      {String path = '', Map<String, dynamic>? body}) async {
+    if (baseUri.scheme != 'https' || baseUri.path != '/' ||
+        baseUri.hasQuery || baseUri.hasFragment) {
+      throw const ConnectionApiException('HTTPS API origin required');
+    }
+    final token = await accessToken();
+    if (token.isEmpty) {
+      throw const ConnectionApiException('Sign in before managing connections.');
+    }
+    try {
+      final request = http.Request(method, baseUri.resolve('/managed-connections$path'))
+        ..headers.addAll({
+          'authorization': 'Bearer $token',
+          'x-organisation-id': tenantId,
+          'accept': 'application/json',
+          if (body != null) 'content-type': 'application/json',
+        });
+      if (body != null) request.body = jsonEncode(body);
+      final streamed = await _client.send(request);
+      final response = await http.Response.fromStream(streamed);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw ConnectionApiException('Connection management returned HTTP ${response.statusCode}.');
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, dynamic>) {
+        throw const ConnectionApiException('Invalid management response.');
+      }
+      return decoded;
+    } on ConnectionApiException {
+      rethrow;
+    } catch (_) {
+      throw const ConnectionApiException('Connection management unavailable.');
+    }
+  }
+
   Future<Uri> start(String tenantId, String connectionId, String permission) async {
     final result = await _request(
       method: 'POST',
