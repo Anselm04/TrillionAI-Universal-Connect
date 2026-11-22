@@ -43,8 +43,20 @@ if(process.env.TEST_ADMIN_DATABASE_URL&&process.env.TEST_RUNTIME_DATABASE_URL){
         VALUES($1,$2,$3,'oauth_tokens','v1',$4,$5,$6)`,[
           'test-selfservice-credential',tenant,a.id,Buffer.alloc(12),Buffer.alloc(16),Buffer.from('fake-ciphertext')
         ]);
+      assert.equal((await store.get(identity(),a.id))?.status,'verification_required');
+      assert.equal(await store.recordHealth(identity(tenant,outsider),a.id,'connected'),false);
+      assert.equal(await store.recordHealth(identity(),a.id,'connected'),true);
       assert.equal((await store.get(identity(),a.id))?.status,'connected');
+      assert.equal(await store.recordHealth(identity(),a.id,'reconnect_required'),true);
+      assert.equal((await store.get(identity(),a.id))?.status,'reconnect_required');
+      assert.equal(await store.recordHealth(identity(),a.id,'unavailable'),true);
+      assert.equal((await store.get(identity(),a.id))?.status,'unavailable');
+      await admin.query(`UPDATE universal_connect.connection_health
+        SET checked_at=now()-interval '2 hours',state='connected'
+        WHERE connection_id=$1`,[a.id]);
+      assert.equal((await store.get(identity(),a.id))?.status,'verification_required');
     }finally{
+      await admin.query('DELETE FROM universal_connect.connection_health WHERE tenant_id=$1 AND connection_id=ANY($2)',[tenant,createdIds]);
       await admin.query('DELETE FROM universal_connect.credentials WHERE tenant_id=$1 AND connection_id=ANY($2)',[tenant,createdIds]);
       await admin.query('DELETE FROM universal_connect.connection_owners WHERE tenant_id=$1 AND connection_id=ANY($2)',[tenant,createdIds]);
       await admin.query('DELETE FROM universal_connect.connections WHERE tenant_id=$1 AND id=ANY($2)',[tenant,createdIds]);
@@ -64,7 +76,9 @@ if(process.env.TEST_ADMIN_DATABASE_URL&&process.env.TEST_RUNTIME_DATABASE_URL){
         if(token!=='identity-token'||t!==tenant)throw Error('denied');
         return identity();
       }},
-      limiter:{acquire:async()=>true}
+      limiter:{acquire:async()=>true},
+      githubLifecycle:{check:async()=> 'reconnect_required' as const,
+        revoke:async()=>{throw Error('not invoked')}}
     }));
     const server=app.listen(0,'127.0.0.1');
     await once(server,'listening');
@@ -84,11 +98,23 @@ if(process.env.TEST_ADMIN_DATABASE_URL&&process.env.TEST_RUNTIME_DATABASE_URL){
       const id=created.json.connection.id as string;ids.push(id);
       assert.equal((await send('GET','/')).json.connections.length,1);
       assert.equal((await send('GET','/'+id)).json.connection.status,'awaiting_authorization');
+      await admin.query(`INSERT INTO universal_connect.credentials
+        (id,tenant_id,connection_id,name,key_version,nonce,tag,ciphertext)
+        VALUES($1,$2,$3,'oauth_tokens','v1',$4,$5,$6)`,[
+          'test-verify-credential',tenant,id,Buffer.alloc(12),Buffer.alloc(16),Buffer.from('fake-encrypted-bytes')
+        ]);
+      assert.equal((await send('GET','/'+id)).json.connection.status,'verification_required');
+      const verified=await send('POST','/'+id+'/verify',{});
+      assert.equal(verified.status,200);
+      assert.equal(verified.json.connection.status,'reconnect_required');
+      assert.equal((await send('POST','/other-connection/verify',{})).status,404);
       assert.equal((await send('GET','/not-a-connection')).status,404);
       assert.equal((await send('GET','/',undefined,{...headers,'x-organisation-id':foreignTenant})).status,403);
       assert.ok(checks>=4);
     }finally{
       await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));
+      await admin.query('DELETE FROM universal_connect.connection_health WHERE connection_id=ANY($1)',[ids]);
+      await admin.query('DELETE FROM universal_connect.credentials WHERE connection_id=ANY($1)',[ids]);
       await admin.query('DELETE FROM universal_connect.connection_owners WHERE connection_id=ANY($1)',[ids]);
       await admin.query('DELETE FROM universal_connect.connections WHERE id=ANY($1)',[ids]);
       await runtime.end();await admin.end();

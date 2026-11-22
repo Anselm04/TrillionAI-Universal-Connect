@@ -4,6 +4,8 @@ import {inTenantTransaction,type TenantPool} from '../../persistence/src/index.t
 import type {SupabaseIdentityBoundary,VerifiedIdentity} from '../../identity/src/index.ts';
 import type {OAuthConnectionService} from '../../oauth/src/index.ts';
 import type {ProviderRateLimiter} from '../../rate-limit/src/index.ts';
+import type {GitHubLifecycle} from '../../github/src/lifecycle.ts';
+import type {OAuthVault} from '../../oauth/src/index.ts';
 
 export interface OAuthPermissionPolicy {
   /** Independently enforce organization role, connection ownership, consent, plan and provider scope. */
@@ -20,6 +22,9 @@ export interface OAuthRouteOptions {
   readonly providerId:'github.oauth';
   /** Must reflect the registered OAuth provider scopes; repo access is never implied. */
   readonly supportsRepositoryAccess:boolean;
+  /** Required for a confirmed GitHub disconnect; no silent local-only fallback. */
+  readonly githubLifecycle?:Pick<GitHubLifecycle,'revoke'>;
+  readonly localTokenVault?:Pick<OAuthVault,'revoke'>;
 }
 export class ConnectionDenied extends Error {
   constructor(){super('Connection action denied');this.name='ConnectionDenied'}
@@ -115,11 +120,16 @@ export function createOAuthConnectionRouter(options:OAuthRouteOptions):express.R
   }));
   router.delete('/:connectionId',wrap(async(req,res)=>{
     const {identity,connectionId}=await authorize(req,'disconnect',null);
-    const deleted=await options.oauth.disconnect(identity.principal,
-      {tenantId:identity.principal.tenantId,connectionId},options.providerId);
-    if(!deleted){res.status(404).json({disconnected:false});return}
+    // Revocation must be confirmed by GitHub before deleting locally. An unreachable
+    // provider leaves encrypted tokens available for a later audited retry.
+    if(!options.githubLifecycle||!options.localTokenVault)
+      throw new Error('GitHub revocation service not configured');
+    const scope={tenantId:identity.principal.tenantId,connectionId};
+    await options.githubLifecycle.revoke(scope);
+    const deleted=await options.localTokenVault.revoke(scope,'oauth_tokens');
+    if(!deleted)throw new Error('Local token deletion failed');
     await audit(identity,connectionId,'oauth.disconnected');
-    res.status(200).json({disconnected:true,providerRevocationConfirmed:false});
+    res.status(200).json({disconnected:true,providerRevocationConfirmed:true});
   }));
   return router;
 }

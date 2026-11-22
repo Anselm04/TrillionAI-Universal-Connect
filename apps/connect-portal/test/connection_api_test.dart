@@ -106,4 +106,22 @@ void main() {
     api.close();
   });
 
+  test('verification requests a scoped provider health check', () async {
+    final sent = <http.Request>[];
+    final api = ConnectionApi(
+      baseUri: Uri.parse('https://app.example.com/'),
+      accessToken: () async => 'verified-token',
+      client: MockClient((request) async {
+        sent.add(request);
+        return http.Response('{"connection":{"id":"my-connection","status":"reconnect_required"}}',200);
+      }),
+    );
+    final result=await api.verifyManagedConnection('11111111-1111-4111-8111-111111111111','my-connection');
+    expect(result['status'],'reconnect_required');
+    expect(sent.single.method,'POST');
+    expect(sent.single.url.path,'/managed-connections/my-connection/verify');
+    expect(sent.single.headers['authorization'],'Bearer verified-token');
+    api.close();
+  });
+
 }
